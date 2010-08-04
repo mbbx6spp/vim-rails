@@ -900,6 +900,7 @@ function! s:BufCommands()
   call s:BufFinderCommands()
   call s:BufNavCommands()
   call s:BufScriptWrappers()
+  command! -buffer -bar -nargs=? -bang -count -complete=customlist,s:Complete_bundle  Bundle   :call s:Bundle(<bang>0,!<count> && <line1> ? -1 : <count>,<q-args>)
   command! -buffer -bar -nargs=? -bang -count -complete=customlist,s:Complete_rake    Rake     :call s:Rake(<bang>0,!<count> && <line1> ? -1 : <count>,<q-args>)
   command! -buffer -bar -nargs=? -bang -range -complete=customlist,s:Complete_preview Rpreview :call s:Preview(<bang>0,<line1>,<q-args>)
   command! -buffer -bar -nargs=? -bang -complete=customlist,s:Complete_environments   Rlog     :call s:Log(<bang>0,<q-args>)
@@ -1077,6 +1078,26 @@ endfunction
 " }}}1
 " Rake {{{1
 
+function! s:app_bundle_tasks() dict
+  if self.cache.needs('bundle_tasks')
+    call s:push_chdir()
+    try
+      let lines = split(system("bundle -h"), "\n")
+    finally
+      call s:pop_command()
+    endtry
+    if v:shell_error != 0
+      return []
+    endif
+    call map(lines, 'matchstr(v:val, "  bundle\\s\\+\\zs\\S*")')
+    call filter(lines, 'v:val != ""')
+    call self.cache.set('bundle_tasks', lines)
+  endif
+  return self.cache.get('bundle_tasks')
+endfunction
+
+call s:add_methods('app', ['bundle_tasks'])
+
 function! s:app_rake_tasks() dict
   if self.cache.needs('rake_tasks')
     call s:push_chdir()
@@ -1116,6 +1137,26 @@ function! s:makewithruby(arg,bang,...)
     endif
   finally
     let &l:makeprg = old_make
+  endtry
+endfunction
+
+function! s:Bundle(bang, lnum, arg)
+  let self = rails#app()
+  let old_makeprg = &l:makeprg
+  let old_errorformat = &l:errorformat
+  try
+    if &l:makeprg !~# 'bundle'
+      let &l:makeprg = 'bundle'
+    endif
+    let &l:errorformat = s:efm_backtrace
+    let arg = a:arg
+    exe 'make! '.arg
+    if !a:bang
+      copen
+    endif
+  finally
+    let &l:errorformat = old_errorformat
+    let &l:makeprg = old_makeprg
   endtry
 endfunction
 
@@ -1305,6 +1346,10 @@ function! s:readable_default_rake_task(lnum) dict abort
   else
     return ''
   endif
+endfunction
+
+function! s:Complete_bundle(A,L,P)
+  return s:completion_filter(rails#app().bundle_tasks(),a:A)
 endfunction
 
 function! s:Complete_rake(A,L,P)
